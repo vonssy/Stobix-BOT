@@ -355,18 +355,20 @@ class Stobix:
                 f"{Fore.WHITE + Style.BRIGHT} {points} $SBXP {Style.RESET_ALL}"
             )
 
+            self.log(f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}")
+
             mining_start_at = user.get("user", {}).get("miningStartedAt", None)
 
             if mining_start_at is None:
                 start = await self.perform_mining(token, proxy)
                 if start:
                     self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                         f"{Fore.GREEN + Style.BRIGHT} Started Successfully {Style.RESET_ALL}"
                     )
                 else:
                     self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                         f"{Fore.RED + Style.BRIGHT} Start Failed {Style.RESET_ALL}"
                     )
             else:
@@ -380,8 +382,8 @@ class Stobix:
                     claim = await self.claim_mining(token, proxy)
                     if claim:
                         self.log(
-                            f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
-                            f"{Fore.YELLOW + Style.BRIGHT} Claimed Successfully {Style.RESET_ALL}"
+                            f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                            f"{Fore.GREEN + Style.BRIGHT} Claimed Successfully {Style.RESET_ALL}"
                             f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
                             f"{Fore.CYAN + Style.BRIGHT} Reward: {Style.RESET_ALL}"
                             f"{Fore.WHITE + Style.BRIGHT}{mining_reward} $SBXP{Style.RESET_ALL}"
@@ -390,24 +392,24 @@ class Stobix:
                         start = await self.perform_mining(token, proxy)
                         if start:
                             self.log(
-                                f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                                f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                                 f"{Fore.GREEN + Style.BRIGHT} Started Successfully {Style.RESET_ALL}"
                             )
                         else:
                             self.log(
-                                f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                                f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                                 f"{Fore.RED + Style.BRIGHT} Start Failed {Style.RESET_ALL}"
                             )
 
                     else:
                         self.log(
-                            f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                            f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                             f"{Fore.RED + Style.BRIGHT} Claim Failed {Style.RESET_ALL}"
                         )
                     
                 else:
                     self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}Mining    :{Style.RESET_ALL}"
+                        f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                         f"{Fore.YELLOW + Style.BRIGHT} Already Started {Style.RESET_ALL}"
                         f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
                         f"{Fore.CYAN + Style.BRIGHT} Claim At: {Style.RESET_ALL}"
