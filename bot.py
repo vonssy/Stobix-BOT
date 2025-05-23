@@ -26,7 +26,7 @@ class Stobix:
             "Sec-Fetch-Site": "same-site",
             "User-Agent": FakeUserAgent().random
         }
-        self.BASE_API = "https://api.stobix.com"
+        self.BASE_API = "https://api.stobix.com/v1"
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
@@ -172,18 +172,8 @@ class Stobix:
 
         return choose, rotate
     
-    async def check_connection(self, proxy=None):
-        connector = ProxyConnector.from_url(proxy) if proxy else None
-        try:
-            async with ClientSession(connector=connector, timeout=ClientTimeout(total=30)) as session:
-                async with session.get(url=self.BASE_API, headers={}) as response:
-                    response.raise_for_status()
-                    return True
-        except (Exception, ClientResponseError) as e:
-            return None
-    
     async def auth_nonce(self, address: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/auth/nonce"
+        url = f"{self.BASE_API}/auth/nonce"
         data = json.dumps({"address":address})
         headers = {
             **self.headers,
@@ -205,7 +195,7 @@ class Stobix:
                 return None, None
     
     async def auth_verify(self, account: str, nonce: str, message: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/auth/web3/verify"
+        url = f"{self.BASE_API}/auth/web3/verify"
         data = json.dumps(self.generate_payload(account, nonce, message))
         headers = {
             **self.headers,
@@ -227,7 +217,7 @@ class Stobix:
                 return None
     
     async def user_loyality(self, token: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/loyalty"
+        url = f"{self.BASE_API}/loyalty"
         headers = {
             **self.headers,
             "Authorization": f"Bearer {token}"
@@ -246,7 +236,7 @@ class Stobix:
                 return None
     
     async def perform_mining(self, token: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/loyalty/points/mine"
+        url = f"{self.BASE_API}/loyalty/points/mine"
         headers = {
             **self.headers,
             "Authorization": f"Bearer {token}",
@@ -266,7 +256,7 @@ class Stobix:
                 return None
     
     async def claim_mining(self, token: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/loyalty/points/claim"
+        url = f"{self.BASE_API}/loyalty/points/claim"
         headers = {
             **self.headers,
             "Authorization": f"Bearer {token}",
@@ -286,7 +276,7 @@ class Stobix:
                 return None
     
     async def claim_tasks(self, token: str, task_id: str, proxy=None, retries=5):
-        url = f"{self.BASE_API}/v1/loyalty/tasks/claim"
+        url = f"{self.BASE_API}/loyalty/tasks/claim"
         data = json.dumps({"taskId":task_id})
         headers = {
             **self.headers,
@@ -307,15 +297,11 @@ class Stobix:
                     continue
                 return None
 
-    async def process_check_connection(self, address: str, use_proxy: bool, rotate_proxy: bool):
-        message = "Checking Connection, Wait..."
-        if use_proxy:
-            message = "Checking Proxy Connection, Wait..."
-
+    async def process_auth_nonce(self, address: str, use_proxy: bool, rotate_proxy: bool):
         print(
             f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
             f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-            f"{Fore.YELLOW + Style.BRIGHT}{message}{Style.RESET_ALL}",
+            f"{Fore.YELLOW + Style.BRIGHT}Try To Login...{Style.RESET_ALL}",
             end="\r",
             flush=True
         )
@@ -323,67 +309,47 @@ class Stobix:
         proxy = self.get_next_proxy_for_account(address) if use_proxy else None
 
         if rotate_proxy:
-            is_valid = None
-            while is_valid is None:
-                is_valid = await self.check_connection(proxy)
-                if not is_valid:
+            nonce = None
+            message = None
+            while nonce is None or message is None:
+                nonce, message = await self.auth_nonce(address, proxy)
+                if not nonce or not message:
                     self.log(
-                        f"{Fore.CYAN+Style.BRIGHT}Proxy     :{Style.RESET_ALL}"
-                        f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-                        f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                        f"{Fore.RED+Style.BRIGHT} Not 200 OK, {Style.RESET_ALL}"
-                        f"{Fore.YELLOW+Style.BRIGHT}Rotating Proxy...{Style.RESET_ALL}"
+                        f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
+                        f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
+                        f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                        f"{Fore.YELLOW + Style.BRIGHT} Rotating Proxy... {Style.RESET_ALL}"
                     )
                     proxy = self.rotate_proxy_for_account(address) if use_proxy else None
                     await asyncio.sleep(5)
                     continue
 
-                self.log(
-                    f"{Fore.CYAN+Style.BRIGHT}Proxy     :{Style.RESET_ALL}"
-                    f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.GREEN+Style.BRIGHT} 200 OK {Style.RESET_ALL}                  "
-                )
+                return nonce, message
 
-                return True
-
-        is_valid = await self.check_connection(proxy)
-        if not is_valid:
+        nonce, message = await self.auth_nonce(address, proxy)
+        if not nonce or not message:
             self.log(
-                f"{Fore.CYAN+Style.BRIGHT}Proxy     :{Style.RESET_ALL}"
-                f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-                f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.RED+Style.BRIGHT} Not 200 OK {Style.RESET_ALL}          "
+                f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
+                f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
+                f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                f"{Fore.YELLOW + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
             )
-            return False
-        
-        self.log(
-            f"{Fore.CYAN+Style.BRIGHT}Proxy     :{Style.RESET_ALL}"
-            f"{Fore.WHITE+Style.BRIGHT} {proxy} {Style.RESET_ALL}"
-            f"{Fore.MAGENTA+Style.BRIGHT}-{Style.RESET_ALL}"
-            f"{Fore.GREEN+Style.BRIGHT} 200 OK {Style.RESET_ALL}                  "
-        )
+            return None, None
 
-        return True
+        return nonce, message
         
     async def process_accounts(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
-        is_valid = await self.process_check_connection(address, use_proxy, rotate_proxy)
-        if is_valid:
+        nonce, message = await self.process_auth_nonce(address, use_proxy, rotate_proxy)
+        if nonce and message:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
-
-            nonce, message = await self.auth_nonce(address, proxy)
-            if not nonce or not message:
-                self.log(
-                    f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
-                )
-                return
             
             token = await self.auth_verify(account, nonce, message, proxy)
             if not token:
                 self.log(
                     f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
                     f"{Fore.RED + Style.BRIGHT} Login Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
                 )
                 return
             
@@ -396,8 +362,9 @@ class Stobix:
             if not user:
                 self.log(
                     f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} GET User Data Failed, {Style.RESET_ALL}"
-                    f"{Fore.YELLOW + Style.BRIGHT}Skipping This Account{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} GET User Data Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
                 )
                 return
             
