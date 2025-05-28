@@ -289,6 +289,8 @@ class Stobix:
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
                     async with session.post(url=url, headers=headers, data=data) as response:
+                        if response.status == 400:
+                            return None
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
@@ -443,10 +445,20 @@ class Stobix:
                     if task:
                         task_id = task.get("id")
                         reward = task.get("points")
+                        frequency = task.get("frequency")
                         claimed_at = task.get("claimedAt")
 
-                        if claimed_at is None:
-                            if "create" in task_id:
+                        if frequency == "once":
+
+                            if claimed_at is not None:
+                                self.log(
+                                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                                    f"{Fore.YELLOW + Style.BRIGHT} Already Completed {Style.RESET_ALL}"
+                                )
+                                continue
+
+                            if "create" in task_id or task_id == "publish_video":
                                 self.log(
                                     f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                                     f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
@@ -470,12 +482,24 @@ class Stobix:
                                     f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
                                     f"{Fore.RED + Style.BRIGHT} Not Claimed {Style.RESET_ALL}"
                                 )
-                        else:
-                            self.log(
-                                f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                                f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
-                                f"{Fore.YELLOW + Style.BRIGHT} Already Claimed {Style.RESET_ALL}"
-                            )
+
+                        elif frequency == "daily":
+                            claim = await self.claim_tasks(token, task_id, proxy)
+                            if claim:
+                                self.log(
+                                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                                    f"{Fore.GREEN + Style.BRIGHT} Claimed Successfully {Style.RESET_ALL}"
+                                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                                    f"{Fore.CYAN + Style.BRIGHT} Reward: {Style.RESET_ALL}"
+                                    f"{Fore.WHITE + Style.BRIGHT}{reward} $SBXP{Style.RESET_ALL}"
+                                )
+                            else:
+                                self.log(
+                                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                                    f"{Fore.YELLOW + Style.BRIGHT} Already Completed {Style.RESET_ALL}"
+                                )
 
             else:
                 self.log(
