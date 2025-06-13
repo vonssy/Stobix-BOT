@@ -30,6 +30,9 @@ class Stobix:
         self.proxies = []
         self.proxy_index = 0
         self.account_proxies = {}
+        self.nonce = {}
+        self.message = {}
+        self.tokens = {}
 
     def clear_terminal(self):
         os.system('cls' if os.name == 'nt' else 'clear')
@@ -61,18 +64,18 @@ class Stobix:
         try:
             if use_proxy_choice == 1:
                 async with ClientSession(timeout=ClientTimeout(total=30)) as session:
-                    async with session.get("https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/all.txt") as response:
+                    async with session.get("https://api.proxyscrape.com/v4/free-proxy-list/get?request=display_proxies&proxy_format=protocolipport&format=text") as response:
                         response.raise_for_status()
                         content = await response.text()
                         with open(filename, 'w') as f:
                             f.write(content)
-                        self.proxies = content.splitlines()
+                        self.proxies = [line.strip() for line in content.splitlines() if line.strip()]
             else:
                 if not os.path.exists(filename):
                     self.log(f"{Fore.RED + Style.BRIGHT}File {filename} Not Found.{Style.RESET_ALL}")
                     return
                 with open(filename, 'r') as f:
-                    self.proxies = f.read().splitlines()
+                    self.proxies = [line.strip() for line in f.read().splitlines() if line.strip()]
             
             if not self.proxies:
                 self.log(f"{Fore.RED + Style.BRIGHT}No Proxies Found.{Style.RESET_ALL}")
@@ -119,40 +122,43 @@ class Stobix:
         except Exception as e:
             return None
     
-    def generate_payload(self, account: str, nonce: str, message: str):
+    def generate_payload(self, account: str, address: str):
         try:
-            encoded_message = encode_defunct(text=message)
+            encoded_message = encode_defunct(text=self.message[address])
             signed_message = Account.sign_message(encoded_message, private_key=account)
             signature = to_hex(signed_message.signature)
 
             payload = {
-                "nonce":nonce,
+                "nonce":self.nonce[address],
                 "signature":signature
             }
 
             return payload
         except Exception as e:
-            return None
+            raise Exception(f"Generate Req Payload Failed: {str(e)}")
     
     def mask_account(self, account):
-        mask_account = account[:6] + '*' * 6 + account[-6:]
-        return mask_account
+        try:
+            mask_account = account[:6] + '*' * 6 + account[-6:]
+            return mask_account
+        except Exception as e:
+            return None
 
     def print_question(self):
         while True:
             try:
-                print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Monosans Proxy{Style.RESET_ALL}")
+                print(f"{Fore.WHITE + Style.BRIGHT}1. Run With Free Proxyscrape Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}2. Run With Private Proxy{Style.RESET_ALL}")
                 print(f"{Fore.WHITE + Style.BRIGHT}3. Run Without Proxy{Style.RESET_ALL}")
                 choose = int(input(f"{Fore.BLUE + Style.BRIGHT}Choose [1/2/3] -> {Style.RESET_ALL}").strip())
 
                 if choose in [1, 2, 3]:
                     proxy_type = (
-                        "Run With Monosans Proxy" if choose == 1 else 
-                        "Run With Private Proxy" if choose == 2 else 
-                        "Run Without Proxy"
+                        "With Free Proxyscrape" if choose == 1 else 
+                        "With Private" if choose == 2 else 
+                        "Without"
                     )
-                    print(f"{Fore.GREEN + Style.BRIGHT}{proxy_type} Selected.{Style.RESET_ALL}")
+                    print(f"{Fore.GREEN + Style.BRIGHT}Run {proxy_type} Proxy Selected.{Style.RESET_ALL}")
                     break
                 else:
                     print(f"{Fore.RED + Style.BRIGHT}Please enter either 1, 2 or 3.{Style.RESET_ALL}")
@@ -184,19 +190,25 @@ class Stobix:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         response.raise_for_status()
-                        result = await response.json()
-                        return result["nonce"], result["message"]
+                        return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None, None
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
     
-    async def auth_verify(self, account: str, nonce: str, message: str, proxy=None, retries=5):
+    async def auth_verify(self, account: str, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/auth/web3/verify"
-        data = json.dumps(self.generate_payload(account, nonce, message))
+        data = json.dumps(self.generate_payload(account, address))
         headers = {
             **self.headers,
             "Content-Length": str(len(data)),
@@ -206,81 +218,108 @@ class Stobix:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         response.raise_for_status()
-                        result = await response.json()
-                        return result["token"]
+                        return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Login Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
     
-    async def user_loyality(self, token: str, proxy=None, retries=5):
+    async def user_loyality(self, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/loyalty"
         headers = {
             **self.headers,
-            "Authorization": f"Bearer {token}"
+            "Authorization": f"Bearer {self.tokens[address]}"
         }
         for attempt in range(retries):
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.get(url=url, headers=headers) as response:
+                    async with session.get(url=url, headers=headers, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                self.log(
+                    f"{Fore.CYAN + Style.BRIGHT}Error     :{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} GET User Data Failed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
     
-    async def perform_mining(self, token: str, proxy=None, retries=5):
+    async def perform_mining(self, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/loyalty/points/mine"
         headers = {
             **self.headers,
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self.tokens[address]}",
             "Content-Length": "0"
         }
         for attempt in range(retries):
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers) as response:
+                    async with session.post(url=url, headers=headers, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Not Started {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
     
-    async def claim_mining(self, token: str, proxy=None, retries=5):
+    async def claim_mining(self, address: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/loyalty/points/claim"
         headers = {
             **self.headers,
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self.tokens[address]}",
             "Content-Length": "0"
         }
         for attempt in range(retries):
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers) as response:
+                    async with session.post(url=url, headers=headers, ssl=False) as response:
                         response.raise_for_status()
                         return await response.json()
             except (Exception, ClientResponseError) as e:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Not Claimed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
     
-    async def claim_tasks(self, token: str, task_id: str, proxy=None, retries=5):
+    async def claim_tasks(self, address: str, task_id: str, proxy=None, retries=5):
         url = f"{self.BASE_API}/loyalty/tasks/claim"
         data = json.dumps({"taskId":task_id})
         headers = {
             **self.headers,
-            "Authorization": f"Bearer {token}",
+            "Authorization": f"Bearer {self.tokens[address]}",
             "Content-Length": str(len(data)),
             "Content-Type": "application/json"
         }
@@ -288,8 +327,15 @@ class Stobix:
             connector = ProxyConnector.from_url(proxy) if proxy else None
             try:
                 async with ClientSession(connector=connector, timeout=ClientTimeout(total=60)) as session:
-                    async with session.post(url=url, headers=headers, data=data) as response:
+                    async with session.post(url=url, headers=headers, data=data, ssl=False) as response:
                         if response.status == 400:
+                            self.log(
+                                f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                                f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                                f"{Fore.RED + Style.BRIGHT} Not Claimed {Style.RESET_ALL}"
+                                f"{Fore.MAGENTA + Style.BRIGHT}Or{Style.RESET_ALL}"
+                                f"{Fore.YELLOW + Style.BRIGHT} Already Claimed {Style.RESET_ALL}"
+                            )
                             return None
                         response.raise_for_status()
                         return await response.json()
@@ -297,77 +343,62 @@ class Stobix:
                 if attempt < retries - 1:
                     await asyncio.sleep(5)
                     continue
-                return None
+                self.log(
+                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
+                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} Not Claimed {Style.RESET_ALL}"
+                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
+                    f"{Fore.RED + Style.BRIGHT} {str(e)} {Style.RESET_ALL}"
+                )
+        
+        return None
 
     async def process_auth_nonce(self, address: str, use_proxy: bool, rotate_proxy: bool):
-        print(
-            f"{Fore.CYAN + Style.BRIGHT}[ {datetime.now().astimezone(wib).strftime('%x %X %Z')} ]{Style.RESET_ALL}"
-            f"{Fore.WHITE + Style.BRIGHT} | {Style.RESET_ALL}"
-            f"{Fore.YELLOW + Style.BRIGHT}Try To Login...{Style.RESET_ALL}",
-            end="\r",
-            flush=True
-        )
-
-        proxy = self.get_next_proxy_for_account(address) if use_proxy else None
-
-        if rotate_proxy:
-            nonce = None
-            message = None
-            while nonce is None or message is None:
-                nonce, message = await self.auth_nonce(address, proxy)
-                if not nonce or not message:
-                    self.log(
-                        f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                        f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
-                        f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
-                        f"{Fore.YELLOW + Style.BRIGHT} Rotating Proxy... {Style.RESET_ALL}"
-                    )
-                    proxy = self.rotate_proxy_for_account(address) if use_proxy else None
-                    await asyncio.sleep(5)
-                    continue
-
-                return nonce, message
-
-        nonce, message = await self.auth_nonce(address, proxy)
-        if not nonce or not message:
+        while True:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
             self.log(
-                f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                f"{Fore.RED + Style.BRIGHT} GET Nonce Failed {Style.RESET_ALL}"
-                f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
-                f"{Fore.YELLOW + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
+                f"{Fore.CYAN + Style.BRIGHT}Proxy     :{Style.RESET_ALL}"
+                f"{Fore.WHITE + Style.BRIGHT} {proxy} {Style.RESET_ALL}"
             )
-            return None, None
 
-        return nonce, message
+            nonce = await self.auth_nonce(address, proxy)
+            if nonce:
+                self.nonce[address] = nonce["nonce"]
+                self.message[address] = nonce["message"]
+
+                return True
+            
+            if rotate_proxy:
+                proxy = self.rotate_proxy_for_account(address)
+                await asyncio.sleep(5)
+                continue
+
+            return False
         
-    async def process_accounts(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
-        nonce, message = await self.process_auth_nonce(address, use_proxy, rotate_proxy)
-        if nonce and message:
+    async def process_auth_verify(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+        nonce = await self.process_auth_nonce(address, use_proxy, rotate_proxy)
+        if nonce:
             proxy = self.get_next_proxy_for_account(address) if use_proxy else None
             
-            token = await self.auth_verify(account, nonce, message, proxy)
-            if not token:
-                self.log(
-                    f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} Login Failed {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
-                )
-                return
-            
-            self.log(
-                f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                f"{Fore.GREEN + Style.BRIGHT} Login Success {Style.RESET_ALL}"
-            )
+            verify = await self.auth_verify(account, address, proxy)
+            if verify:
+                self.tokens[address] = verify["token"]
 
-            user = await self.user_loyality(token, proxy)
-            if not user:
                 self.log(
                     f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} GET User Data Failed {Style.RESET_ALL}"
-                    f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} Skipping This Account {Style.RESET_ALL}"
+                    f"{Fore.GREEN + Style.BRIGHT} Login Success {Style.RESET_ALL}"
                 )
+                return True
+
+            return False
+        
+    async def process_accounts(self, account: str, address: str, use_proxy: bool, rotate_proxy: bool):
+        verifed = await self.process_auth_verify(account, address, use_proxy, rotate_proxy)
+        if verifed:
+            proxy = self.get_next_proxy_for_account(address) if use_proxy else None
+            
+            user = await self.user_loyality(address, proxy)
+            if not user:
                 return
             
             points = user.get("user", {}).get("points", 0)
@@ -381,17 +412,13 @@ class Stobix:
             mining_start_at = user.get("user", {}).get("miningStartedAt", None)
 
             if mining_start_at is None:
-                start = await self.perform_mining(token, proxy)
+                start = await self.perform_mining(address, proxy)
                 if start:
                     self.log(
                         f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                         f"{Fore.GREEN + Style.BRIGHT} Started Successfully {Style.RESET_ALL}"
                     )
-                else:
-                    self.log(
-                        f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                        f"{Fore.RED + Style.BRIGHT} Start Failed {Style.RESET_ALL}"
-                    )
+
             else:
                 utc_now = datetime.now(timezone.utc)
                 mining_claim_utc = datetime.fromisoformat(user["user"]["miningClaimAt"].replace("Z", "+00:00"))
@@ -400,7 +427,7 @@ class Stobix:
                 if utc_now >= mining_claim_utc:
                     mining_reward = user.get("user", {}).get("miningAmount", None)
 
-                    claim = await self.claim_mining(token, proxy)
+                    claim = await self.claim_mining(address, proxy)
                     if claim:
                         self.log(
                             f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
@@ -410,23 +437,13 @@ class Stobix:
                             f"{Fore.WHITE + Style.BRIGHT}{mining_reward} $SBXP{Style.RESET_ALL}"
                         )
 
-                        start = await self.perform_mining(token, proxy)
+                        start = await self.perform_mining(address, proxy)
                         if start:
                             self.log(
                                 f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
                                 f"{Fore.GREEN + Style.BRIGHT} Started Successfully {Style.RESET_ALL}"
                             )
-                        else:
-                            self.log(
-                                f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                                f"{Fore.RED + Style.BRIGHT} Start Failed {Style.RESET_ALL}"
-                            )
 
-                    else:
-                        self.log(
-                            f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                            f"{Fore.RED + Style.BRIGHT} Claim Failed {Style.RESET_ALL}"
-                        )
                     
                 else:
                     self.log(
@@ -466,7 +483,7 @@ class Stobix:
                                 )
                                 continue
 
-                            claim = await self.claim_tasks(token, task_id, proxy)
+                            claim = await self.claim_tasks(address, task_id, proxy)
                             if claim:
                                 self.log(
                                     f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
@@ -475,16 +492,10 @@ class Stobix:
                                     f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
                                     f"{Fore.CYAN + Style.BRIGHT} Reward: {Style.RESET_ALL}"
                                     f"{Fore.WHITE + Style.BRIGHT}{reward} $SBXP{Style.RESET_ALL}"
-                                )
-                            else:
-                                self.log(
-                                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
-                                    f"{Fore.RED + Style.BRIGHT} Not Claimed {Style.RESET_ALL}"
                                 )
 
                         elif frequency == "daily":
-                            claim = await self.claim_tasks(token, task_id, proxy)
+                            claim = await self.claim_tasks(address, task_id, proxy)
                             if claim:
                                 self.log(
                                     f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
@@ -493,18 +504,12 @@ class Stobix:
                                     f"{Fore.MAGENTA + Style.BRIGHT}-{Style.RESET_ALL}"
                                     f"{Fore.CYAN + Style.BRIGHT} Reward: {Style.RESET_ALL}"
                                     f"{Fore.WHITE + Style.BRIGHT}{reward} $SBXP{Style.RESET_ALL}"
-                                )
-                            else:
-                                self.log(
-                                    f"{Fore.MAGENTA + Style.BRIGHT}   > {Style.RESET_ALL}"
-                                    f"{Fore.WHITE + Style.BRIGHT}{task_id}{Style.RESET_ALL}"
-                                    f"{Fore.YELLOW + Style.BRIGHT} Already Completed {Style.RESET_ALL}"
                                 )
 
             else:
                 self.log(
                     f"{Fore.CYAN + Style.BRIGHT}Task Lists:{Style.RESET_ALL}"
-                    f"{Fore.RED + Style.BRIGHT} GET Lists Data Failed {Style.RESET_ALL}"
+                    f"{Fore.YELLOW + Style.BRIGHT} No Available {Style.RESET_ALL}"
                 )
 
     async def main(self):
@@ -538,6 +543,14 @@ class Stobix:
                             f"{Fore.WHITE + Style.BRIGHT} {self.mask_account(address)} {Style.RESET_ALL}"
                             f"{Fore.CYAN + Style.BRIGHT}]{separator}{Style.RESET_ALL}"
                         )
+
+                        if not address:
+                            self.log(
+                                f"{Fore.CYAN + Style.BRIGHT}Status    :{Style.RESET_ALL}"
+                                f"{Fore.RED + Style.BRIGHT} Invalid Private Key or Library Version Not Supported {Style.RESET_ALL}"
+                            )
+                            continue
+                        
                         await self.process_accounts(account, address, use_proxy, rotate_proxy)
                         await asyncio.sleep(3)
 
@@ -563,6 +576,7 @@ class Stobix:
             return
         except Exception as e:
             self.log(f"{Fore.RED+Style.BRIGHT}Error: {e}{Style.RESET_ALL}")
+            raise
 
 if __name__ == "__main__":
     try:
